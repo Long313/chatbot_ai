@@ -1,5 +1,6 @@
 streamlit==1.37.0
-openai==0.28.0
 SpeechRecognition==3.10.4
 streamlit-audiorecorder==0.0.5
 pydub==0.25.1
+langdetect==1.0.9
+google-generativeai==0.8.5

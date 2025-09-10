@@ -1,113 +1,62 @@
-import os, io, json, wave
+import io, wave
 from datetime import datetime
 import streamlit as st
 import speech_recognition as sr
 from audiorecorder import audiorecorder
-from chat_core import configure_openai, reply, DEFAULT_MODEL, GROQ_BASE_URL
+from chat_core import configure_gemini, reply, DEFAULT_MODEL
 
-
-st.set_page_config(page_title="AMAX - Chatbot🎙️ ", page_icon="💬", layout="wide")
-
+st.set_page_config(page_title="AMAX - Chatbot🎙️", page_icon="💬", layout="wide")
 
 GRADIENT = "linear-gradient(135deg, #822FFF, #FF35C4)"
 
-CUSTOM_CSS = f"""
-<style>
-/* Nền trắng, chữ đen mặc định */
+# ---- CSS giữ nguyên ----
+CUSTOM_CSS = f"""<style>
 .stApp {{ background: #ffffff; color: #111827; }}
-
-/* Bong bóng chat tối giản */
-.chat-bubble {{
-  border-radius: 14px;
-  padding: 10px 14px;
-  margin: 8px 0;
-  max-width: 85%;
-  font-size: 15px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-}}
+.chat-bubble {{ border-radius:14px; padding:10px 14px; margin:8px 0; max-width:85%; font-size:15px; border:1px solid #e5e7eb; background:#fff; }}
 .user-bubble {{ margin-left:auto; background:#fafafa; }}
 .assistant-bubble {{ margin-right:auto; background:#f8fafc; }}
-
-/* Tiêu đề phụ, timestamp */
 .timestamp {{ font-size:12px; color:#6b7280; }}
-
-/* Nút: nền gradient, chữ trắng */
-.stButton > button {{
-  background: {GRADIENT};
-  color: white;
-  border: none;
-  border-radius: 10px;
-  padding: 8px 14px;
-}}
-.stButton > button:hover {{
-  filter: brightness(0.95);
-}}
-
-/* Input: viền gradient (giữ nền trắng) */
+.stButton > button {{ background:{GRADIENT}; color:white; border:none; border-radius:10px; padding:8px 14px; }}
+.stButton > button:hover {{ filter: brightness(0.95); }}
 input[type="text"], input[type="password"], textarea {{
-  border: 2px solid transparent !important;
-  border-radius: 7px !important;
-  background-image: linear-gradient(#fff, #fff), {GRADIENT};
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
+  border:2px solid transparent !important; border-radius:7px !important;
+  background-image: linear-gradient(#fff,#fff), {GRADIENT};
+  background-origin:border-box; background-clip: padding-box, border-box;
 }}
-
-/* Chat input (ô nhập dưới cùng) */
 [data-testid="stChatInput"] textarea {{
-  border: 2px solid transparent !important;
-  border-radius: 7px !important;
-  background-image: linear-gradient(#fff, #fff), {GRADIENT};
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
+  border:2px solid transparent !important; border-radius:7px !important;
+  background-image: linear-gradient(#fff,#fff), {GRADIENT};
+  background-origin:border-box; background-clip: padding-box, border-box;
 }}
-
-/* Sidebar trắng, viền gradient trên input như trên */
-[data-testid="stSidebar"] {{
-  background: #FFF3FC;
-}}
-
-
-/* Audio player nhẹ nhàng */
-.stAudio audio {{ width: 100%; outline: none; }}
-</style>
-"""
+[data-testid="stSidebar"] {{ background:#FFF3FC; }}
+.stAudio audio {{ width:100%; outline:none; }}
+</style>"""
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# ---- Tiêu đề ----
-st.markdown("<h1 style='text-align:center;'>💬 Luôn luôn lắng nghe...</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center;color:#6b7280;'>Nhập văn bản hoặc ghi âm tiếng Việt để hỏi</p>", unsafe_allow_html=True)
-
-# ---- Sidebar (tiếng Việt) ----
+# ---- Sidebar ----
 with st.sidebar:
     st.header("⚙️ Cấu hình")
-    groq_key = st.text_input("GROQ API Key (gsk_…)", type="password", help="Dán key từ console.groq.com")
-    base_url = st.text_input("API Base URL", value=GROQ_BASE_URL)
+    gemini_key = st.text_input("Gemini API Key", type="password", help="Dán key từ Google AI Studio")
     model = st.text_input("Model", value=DEFAULT_MODEL)
     auto_send = st.checkbox("Tự gửi sau khi nhận dạng giọng nói", value=True)
     if st.button("🧹 Xoá hội thoại"):
         st.session_state.messages = []
 
-# ---- Trạng thái phiên ----
+# ---- Phiên chat ----
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ---- Hàm hiển thị bong bóng ----
 def render_message(role, content, t=None):
     t = t or datetime.now().strftime("%H:%M")
     bubble_class = "user-bubble" if role=="user" else "assistant-bubble"
     who = "🧑" if role=="user" else "🤖"
-    st.markdown(
-        f"""
-        <div class="chat-bubble {bubble_class}">
-            <div><b>{who}</b> · <span class="timestamp">{t}</span></div>
-            <div>{content}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    st.markdown(f"""
+    <div class="chat-bubble {bubble_class}">
+        <div><b>{who}</b> · <span class="timestamp">{t}</span></div>
+        <div>{content}</div>
+    </div>""", unsafe_allow_html=True)
 
-# ---- Lịch sử chat ----
+# ---- Hiển thị lịch sử chat ----
 for m in st.session_state.messages:
     render_message(m["role"], m["content"], m.get("t"))
 
@@ -117,11 +66,9 @@ with col_text:
     user_text = st.chat_input("Nhập tin nhắn…")
 
 with col_voice:
-    #st.subheader("🎤")
     audio = audiorecorder("Bấm để nói 🎤", "Bấm để dừng ✔️")
     transcript = None
     if len(audio) > 0:
-        # Chuyển AudioSegment -> WAV bytes (không cần ffmpeg)
         wav_bytes = io.BytesIO()
         with wave.open(wav_bytes, "wb") as wf:
             wf.setnchannels(audio.channels)
@@ -131,7 +78,6 @@ with col_voice:
         wav_bytes.seek(0)
         st.audio(wav_bytes.getvalue(), format="audio/wav")
 
-        # Nhận dạng tiếng Việt
         r = sr.Recognizer()
         try:
             with sr.AudioFile(wav_bytes) as source:
@@ -139,7 +85,7 @@ with col_voice:
             transcript = r.recognize_google(data, language="vi-VN")
             st.success(f"📝 Nhận dạng: {transcript}")
         except sr.UnknownValueError:
-            st.warning("Chưa nghe rõ nội dung. Hãy nói gần micro và rõ hơn nhé.")
+            st.warning("Chưa nghe rõ nội dung.")
         except sr.RequestError as e:
             st.error(f"Lỗi dịch vụ nhận dạng: {e}")
 
@@ -149,7 +95,7 @@ if to_send:
     st.session_state.messages.append({"role":"user","content":to_send,"t":datetime.now().strftime("%H:%M")})
     render_message("user", to_send)
     try:
-        configure_openai(api_key=groq_key, api_base=base_url)
+        configure_gemini(api_key=gemini_key)
         bot_text = reply(to_send)
     except Exception as e:
         bot_text = f"⚠️ Lỗi API: {e}"

@@ -1,60 +1,69 @@
 """
-Core chat utilities that can be reused by both CLI and UI apps.
-Reads GROQ API key from environment or from a passed-in value.
+Core chat utilities for Gemini API + Tavily Web Search (cập nhật thông tin mới nhất)
 """
 
 import os
-from datetime import date, datetime
+import google.generativeai as genai
+import requests
+from langdetect import detect
 
-import openai  # openai==0.28 (legacy)
+DEFAULT_MODEL = "gemini-1.5-flash"
 
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-DEFAULT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+# ---- Hardcode Tavily key (web search) ----
+TAVILY_KEY = "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"
 
-
-def configure_openai(api_key: str | None = None, api_base: str | None = GROQ_BASE_URL):
+def configure_gemini(api_key: str | None = None):
     """
-    Configure the OpenAI client to use Groq's OpenAI-compatible endpoint.
-    api_key: Groq API key (starts with gsk_). If None, read from environment variable GROQ_API_KEY.
-    api_base: Base URL. Defaults to Groq's OpenAI-compatible endpoint.
+    Configure the Gemini client.
+    api_key: Gemini API key. Nếu None, đọc từ biến môi trường GEMINI_API_KEY.
     """
-    key = api_key or os.getenv("GROQ_API_KEY")
+    key = api_key or os.getenv("GEMINI_API_KEY")
     if not key:
-        raise ValueError("GROQ_API_KEY not set. Provide it via function param or environment variable.")
-    openai.api_key = key
-    if api_base:
-        openai.api_base = api_base
+        raise ValueError("GEMINI_API_KEY not set. Nhập key từ param hoặc biến môi trường.")
+    genai.configure(api_key=key)
 
-
-def ask_groq(prompt: str, model: str = DEFAULT_MODEL) -> str:
+def search_web(query: str, max_results: int = 3) -> str:
     """
-    Send a single-turn prompt to the Groq model and return the response text.
+    Dùng Tavily để lấy thông tin mới nhất từ web.
     """
-    response = openai.ChatCompletion.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
+    if not TAVILY_KEY:
+        return "⚠️ Chưa có TAVILY_API_KEY"
+    
+    resp = requests.post(
+        "https://api.tavily.com/search",
+        json={"query": query, "max_results": max_results},
+        headers={"Authorization": f"Bearer {TAVILY_KEY}"}
     )
-    return response.choices[0].message["content"]
+    if resp.status_code != 200:
+        return f"⚠️ Lỗi Tavily API: {resp.text}"
+    
+    results = resp.json()
+    return "\n".join([r.get("content","") for r in results.get("results", [])])
 
+def ask_gemini(prompt: str, model: str = DEFAULT_MODEL) -> str:
+    """
+    Nếu câu hỏi có từ khóa thời sự hoặc là tiếng Anh, tự động gọi web search để cập nhật thông tin.
+    """
+    try:
+        lang = detect(prompt)
+    except:
+        lang = "vi"
+    
+    keywords_vi = ["hiện tại", "nay", "mới nhất", "tổng thống", "ngày hôm nay", "giá", "thời tiết", "báo cáo"]
+    use_web = lang == "en" or any(word in prompt.lower() for word in keywords_vi)
+
+    if use_web:
+        web_data = search_web(prompt)
+        prompt = f"Người dùng hỏi: {prompt}\nThông tin mới nhất từ web:\n{web_data}\nHãy trả lời chính xác bằng ngôn ngữ câu hỏi."
+
+    model_obj = genai.GenerativeModel(model)
+    response = model_obj.generate_content(prompt)
+    return response.text
 
 def reply(user_text: str) -> str:
     """
-    Very simple rule-based layer for quick responses.
-    Falls back to Groq model for everything else.
+    Trả lời từ Gemini, fallback nếu trống.
     """
     if not user_text or not user_text.strip():
         return "Mình chưa nghe rõ. Bạn nhập lại giúp mình nhé."
-
-    lower = user_text.lower().strip()
-
-    if "hello" in lower or "hi" in lower or "xin chào" in lower:
-        return "Hello! 👋 Mình có thể giúp gì cho bạn?"
-    if "today" in lower or "hôm nay" in lower:
-        today = date.today()
-        return today.strftime("Hôm nay là %d/%m/%Y.")
-    if "time" in lower or "mấy giờ" in lower or "giờ" == lower:
-        now = datetime.now()
-        return now.strftime("Bây giờ là %H:%M.")
-
-    # Default: ask the model
-    return ask_groq(user_text)
+    return ask_gemini(user_text)
