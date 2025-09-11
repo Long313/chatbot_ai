@@ -1,4 +1,6 @@
 import io, wave
+import webbrowser
+import urllib.parse
 from datetime import datetime
 import streamlit as st
 import speech_recognition as sr
@@ -32,6 +34,52 @@ input[type="text"], input[type="password"], textarea {{
 .stAudio audio {{ width:100%; outline:none; }}
 </style>"""
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+# Map tên trang sang URL
+def open_site(command: str):
+    cmd = command.lower()
+
+    # --- Nếu có 'youtube' + 'tìm kiếm' ---
+    if "youtube" in cmd and "tìm kiếm" in cmd:
+        try:
+            query = command.split("tìm kiếm", 1)[1].strip()
+            if query:
+                search_url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote(query)
+                webbrowser.open(search_url, new=2)
+                return f"🎵 Đang mở YouTube và tìm kiếm: {query}"
+        except:
+            pass
+        return "⚠️ Không nhận diện được từ khóa tìm kiếm trên YouTube."
+
+    # --- Nếu có 'youtube' + 'bài hát' ---
+    if "youtube" in cmd and "bài hát" in cmd:
+        try:
+            query = command.split("bài hát", 1)[1].replace("trên youtube.com", "").strip()
+            if query:
+                search_url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote(query)
+                webbrowser.open(search_url, new=2)
+                return f"🎵 Đang mở YouTube và tìm kiếm bài hát: {query}"
+        except:
+            pass
+        return "⚠️ Không nhận diện được tên bài hát."
+
+    # --- Map trang phổ biến ---
+    SITE_MAP = {
+        "google": "https://www.google.com",
+        "youtube": "https://www.youtube.com",
+        "facebook": "https://www.facebook.com",
+        "zalo": "https://chat.zalo.me",
+        "github": "https://github.com"
+    }
+
+    for name, url in SITE_MAP.items():
+        if name in cmd:
+            webbrowser.open(url, new=2)
+            return f"🌐 Đang mở {name.title()}..."
+
+    # fallback: tìm trên Google
+    search_url = "https://www.google.com/search?q=" + urllib.parse.quote(command)
+    webbrowser.open(search_url, new=2)
+    return f"🔍 Không rõ trang, đang tìm '{command}' trên Google..."
 
 # ---- Sidebar ----
 with st.sidebar:
@@ -89,15 +137,21 @@ with col_voice:
         except sr.RequestError as e:
             st.error(f"Lỗi dịch vụ nhận dạng: {e}")
 
-# ---- Gửi câu hỏi ----
 to_send = user_text or transcript
 if to_send:
-    st.session_state.messages.append({"role":"user","content":to_send,"t":datetime.now().strftime("%H:%M")})
-    render_message("user", to_send)
-    try:
-        configure_gemini(api_key=gemini_key)
-        bot_text = reply(to_send)
-    except Exception as e:
-        bot_text = f"⚠️ Lỗi API: {e}"
-    st.session_state.messages.append({"role":"assistant","content":bot_text,"t":datetime.now().strftime("%H:%M")})
-    render_message("assistant", bot_text)
+    # ✅ Kiểm tra lệnh mở trang
+    if to_send.lower().startswith("mở "):
+        site_name = to_send[3:].strip()  # lấy phần sau từ "mở"
+        msg = open_site(site_name)
+        st.success(msg)
+    else:
+        # Chat bình thường
+        st.session_state.messages.append({"role":"user","content":to_send,"t":datetime.now().strftime("%H:%M")})
+        render_message("user", to_send)
+        try:
+            configure_gemini(api_key=gemini_key)
+            bot_text = reply(to_send)
+        except Exception as e:
+            bot_text = f"⚠️ Lỗi API: {e}"
+        st.session_state.messages.append({"role":"assistant","content":bot_text,"t":datetime.now().strftime("%H:%M")})
+        render_message("assistant", bot_text)
