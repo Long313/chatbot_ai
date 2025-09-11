@@ -1,6 +1,8 @@
 import io, wave
 import webbrowser
+import requests
 import urllib.parse
+from bs4 import BeautifulSoup
 from datetime import datetime
 import streamlit as st
 import speech_recognition as sr
@@ -35,6 +37,35 @@ input[type="text"], input[type="password"], textarea {{
 </style>"""
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 # Map tên trang sang URL
+def extract_youtube_song(command: str) -> str | None:
+    cmd = command.lower()
+    if "bài hát" in cmd and "youtube" in cmd:
+        # lấy phần sau "bài hát"
+        query = command.split("bài hát", 1)[1]
+        # loại bỏ mấy từ thừa
+        query = query.replace("trên trang youtube.com", "")
+        query = query.replace("trang youtube.com", "")
+        query = query.replace("trên youtube.com", "")
+        query = query.replace("youtube.com", "")
+        return query.strip()
+    return None
+
+def play_first_youtube_result(query: str, api_key: str = None):
+    if not api_key:
+        api_key = "AIzaSyD6rtMXwUWS2iZAbWYi6aaF72NSivPKyDU"  # key mặc định
+    search_url = (
+        "https://www.googleapis.com/youtube/v3/search?"
+        f"part=snippet&type=video&maxResults=1&q={urllib.parse.quote(query)}&key={api_key}"
+    )
+    resp = requests.get(search_url).json()
+    items = resp.get("items", [])
+    if not items:
+        return "⚠️ Không tìm thấy video nào."
+    video_id = items[0]["id"]["videoId"]
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+    webbrowser.open(video_url, new=2)
+    return f"🎵 Đang phát: {query}\n👉 {video_url}"
+
 def open_site(command: str):
     cmd = command.lower()
 
@@ -52,15 +83,11 @@ def open_site(command: str):
 
     # --- Nếu có 'youtube' + 'bài hát' ---
     if "youtube" in cmd and "bài hát" in cmd:
-        try:
-            query = command.split("bài hát", 1)[1].replace("trên youtube.com", "").strip()
-            if query:
-                search_url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote(query)
-                webbrowser.open(search_url, new=2)
-                return f"🎵 Đang mở YouTube và tìm kiếm bài hát: {query}"
-        except:
-            pass
-        return "⚠️ Không nhận diện được tên bài hát."
+        query = extract_youtube_song(command)
+        if query:
+            return play_first_youtube_result(query)
+        else:
+            return "⚠️ Không nhận diện được tên bài hát."
 
     # --- Map trang phổ biến ---
     SITE_MAP = {
@@ -84,7 +111,7 @@ def open_site(command: str):
 # ---- Sidebar ----
 with st.sidebar:
     st.header("⚙️ Cấu hình")
-    gemini_key = st.text_input("Gemini API Key", type="password", help="Dán key từ Google AI Studio")
+    gemini_key = st.text_input("API Key", type="password", help="Dán key từ Google AI Studio")
     model = st.text_input("Model", value=DEFAULT_MODEL)
     auto_send = st.checkbox("Tự gửi sau khi nhận dạng giọng nói", value=True)
     if st.button("🧹 Xoá hội thoại"):
